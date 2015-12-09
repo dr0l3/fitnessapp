@@ -80,12 +80,9 @@ public class MainActivity extends Activity implements SensorEventListener {
         mTimer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
-                //remove half the values
-
                 //calculate the values
                 ArrayList<float[]> copied = new ArrayList<>(getEvents());
                 copied = removeValues(8, copied);
-//                printSensorEvents(copied);
                 List<Double[]> windows = convertToWindow(copied);
 
                 ResVal resVal = new ResVal(windows).invoke();
