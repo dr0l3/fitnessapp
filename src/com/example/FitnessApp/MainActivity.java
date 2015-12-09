@@ -48,6 +48,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     private int predictionsSinceLastAnnouncement;
     private int MAX_STATE_HISTORY_SIZE = 60;
     private int MAX_EVENT_HISTORY_SIZE = 10000;
+    private int SECONDS_IN_WINDOW = 30;
     private LineChart mLineChart;
 
     @Override
@@ -254,21 +255,18 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     private void updateViewWithNewPrediction(Instance prediction){
-        //TODO:implement the graph
         String text = prediction.toString(); //the prediction and the data used to make it
         String previousText = (String) showPredictionView.getText();
         String previousState = getState(previousText);
         String currentState = prediction.stringValue(prediction.classIndex());
         stateHistory.add(prediction.classValue());
         showPredictionView.setText(text);
-        if( predictionsSinceLastAnnouncement >= 29) {
+        if( predictionsSinceLastAnnouncement >= SECONDS_IN_WINDOW-1) {
             announceMostCommonState();
             predictionsSinceLastAnnouncement = 0;
         } else {
             predictionsSinceLastAnnouncement++;
         }
-
-
 
         updateLineChartData(mLineChart);
 
@@ -277,7 +275,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         if(stateCounter.containsKey(currentState)){
             stateCounter.put(currentState, stateCounter.get(currentState)+1);
         } else {
-            stateCounter.put(currentState, 0);
+            stateCounter.put(currentState, 1);
         }
 
         if(stateHistory.size() > MAX_STATE_HISTORY_SIZE)
@@ -286,7 +284,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
     private void announceMostCommonState() {
         //get state history
-        ArrayList<Double> recentState = new ArrayList<>(stateHistory.subList(stateHistory.size()-30, stateHistory.size()));
+        ArrayList<Double> recentState = new ArrayList<>(stateHistory.subList(stateHistory.size()-SECONDS_IN_WINDOW, stateHistory.size()));
         Collections.sort(recentState);
         Double mostCommon = 0d;
         Double last = null;
@@ -550,6 +548,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         stateHistory = new ArrayList<>();
         savedDistributions = new ArrayList<>();
         stateCounter = new HashMap<>();
+        predictionsSinceLastAnnouncement = 0;
         //set the layout to be the normal
         setContentView(R.layout.main);
         startPrediction(view);
