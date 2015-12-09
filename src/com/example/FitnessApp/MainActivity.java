@@ -14,12 +14,15 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.charts.PieChart;
 import com.github.mikephil.charting.components.Legend;
-import com.github.mikephil.charting.data.Entry;
-import com.github.mikephil.charting.data.PieData;
-import com.github.mikephil.charting.data.PieDataSet;
+import com.github.mikephil.charting.components.LimitLine;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.data.*;
 import com.github.mikephil.charting.formatter.PercentFormatter;
+import com.github.mikephil.charting.formatter.YAxisValueFormatter;
 import com.github.mikephil.charting.utils.ColorTemplate;
 import weka.classifiers.Classifier;
 import weka.core.*;
@@ -42,6 +45,10 @@ public class MainActivity extends Activity implements SensorEventListener {
     private ArrayList<Double[]> savedDistributions;
     private HashMap<String, Integer> stateCounter;
     private Button startButton;
+    private int predictionsSinceLastAnnouncement;
+    private int MAX_STATE_HISTORY_SIZE = 60;
+    private int MAX_EVENT_HISTORY_SIZE = 10000;
+    private LineChart mLineChart;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -53,11 +60,17 @@ public class MainActivity extends Activity implements SensorEventListener {
         printView = (TextView) findViewById(R.id.println);
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pwl");
+        //TODO: garbage collections
         eventArrayList = new ArrayList<>();
         stateHistory = new ArrayList<>();
         savedDistributions = new ArrayList<>();
         stateCounter = new HashMap<>();
         startButton = (Button) findViewById(R.id.buttonStart);
+        predictionsSinceLastAnnouncement = 0;
+        LinearLayout currentLayout = (LinearLayout) findViewById(R.id.mainLayout);
+        mLineChart = new LineChart(this);
+        currentLayout.addView(mLineChart);
+        setupLineChart(mLineChart);
         //TODO: this takes a long time. Loading screen?
         try {
             InputStream classifierStream = getAssets().open("rfWindowv2.model");
@@ -241,26 +254,23 @@ public class MainActivity extends Activity implements SensorEventListener {
     }
 
     private void updateViewWithNewPrediction(Instance prediction){
+        //TODO:implement the graph
         String text = prediction.toString(); //the prediction and the data used to make it
         String previousText = (String) showPredictionView.getText();
         String previousState = getState(previousText);
         String currentState = prediction.stringValue(prediction.classIndex());
-//        System.out.println(prediction + " " + currentState);
-        if( !currentState.equals(previousState)) {
-            switch (currentState) {
-                case "still":
-                    playSound(R.raw.still);
-                    break;
-                case "lowenergy":
-                    playSound(R.raw.lowenergy);
-                    break;
-                default:
-                    playSound(R.raw.highenergy);
-                    break;
-            }
-        }
-        showPredictionView.setText(text);
         stateHistory.add(prediction.classValue());
+        showPredictionView.setText(text);
+        if( predictionsSinceLastAnnouncement >= 29) {
+            announceMostCommonState();
+            predictionsSinceLastAnnouncement = 0;
+        } else {
+            predictionsSinceLastAnnouncement++;
+        }
+
+
+
+        updateLineChartData(mLineChart);
 
         //Save the new prediction in the statecounter
         //Much elegant javacode, very clap... :|
@@ -270,15 +280,49 @@ public class MainActivity extends Activity implements SensorEventListener {
             stateCounter.put(currentState, 0);
         }
 
-        if(stateHistory.size() > 5)
+        if(stateHistory.size() > MAX_STATE_HISTORY_SIZE)
             stateHistory.remove(0);
-//        System.out.println("Statehistorysize = "+stateHistory.size());
+    }
+
+    private void announceMostCommonState() {
+        //get state history
+        ArrayList<Double> recentState = new ArrayList<>(stateHistory.subList(stateHistory.size()-30, stateHistory.size()));
+        Collections.sort(recentState);
+        Double mostCommon = 0d;
+        Double last = null;
+        int mostCount = 0;
+        int lastCount = 0;
+        for (Double state : recentState) {
+            if (state.equals(last)){
+                lastCount++;
+            } else {
+                if (lastCount > mostCount) {
+                    mostCount = lastCount;
+                    mostCommon = last;
+
+                }
+                lastCount = 0;
+            }
+            last = state;
+        }
+        if (lastCount > mostCount)
+            mostCommon = last;
+        double i = mostCommon;
+        if (i == 0d) {
+            playSound(R.raw.still);
+
+        } else if (i == 1d) {
+            playSound(R.raw.lowenergy);
+
+        } else {
+            playSound(R.raw.highenergy);
+
+        }
     }
 
     private String getState(String previousText) {
         String reverse = new StringBuffer(previousText).reverse().toString();
         String reverseClass = reverse.substring(0,reverse.indexOf(","));
-//        System.out.println("Reverseclass = " + reverseClass);
         return new StringBuffer(reverseClass).reverse().toString();
     }
 
@@ -412,6 +456,77 @@ public class MainActivity extends Activity implements SensorEventListener {
         //add legend
         Legend legend = pieChart.getLegend();
         legend.setPosition(Legend.LegendPosition.RIGHT_OF_CHART_CENTER);
+    }
+
+    private void setupLineChart(LineChart lineChart) {
+        lineChart.setDescription("");
+        lineChart.setAutoScaleMinMaxEnabled(false);
+        lineChart.setMinimumHeight(300);
+        lineChart.setMinimumWidth(700);
+        lineChart.getAxisRight().setEnabled(false);
+        lineChart.getXAxis().setEnabled(false);
+        lineChart.getAxisLeft().setAxisMaxValue(2f);
+        lineChart.getAxisLeft().setAxisMinValue(0f);
+        lineChart.getAxisLeft().setLabelCount(3,true);
+        lineChart.getAxisLeft().setValueFormatter(new YAxisValueFormatter() {
+                                                      @Override
+                                                      public String getFormattedValue(float value, YAxis yAxis) {
+                                                          if (value == 0.0f){
+                                                              return "Still";
+                                                          } else if (value == 1.0f){
+                                                              return "Low";
+                                                          } else {
+                                                              return "High";
+                                                          }
+                                                      }
+                                                  });
+        Legend legend = lineChart.getLegend();
+        legend.setEnabled(false);
+        legend.setPosition(Legend.LegendPosition.BELOW_CHART_CENTER);
+        lineChart.invalidate();
+    }
+
+    private void updateLineChartData(LineChart lineChart) {
+        //get states from state history
+        //remove previous limitlines
+        lineChart.getXAxis().removeAllLimitLines();
+        if (stateHistory.size() >= 30) {
+            LimitLine lastAnnouncement = new LimitLine(stateHistory.size() - predictionsSinceLastAnnouncement, "");
+            lastAnnouncement.setLineColor(Color.BLACK);
+            lastAnnouncement.setTextSize(15f);
+            lineChart.getXAxis().addLimitLine(lastAnnouncement);
+        }
+
+        if (stateHistory.size() >= 60) {
+            LimitLine secondLastAnnouncement = new LimitLine(stateHistory.size() - predictionsSinceLastAnnouncement - 30, "");
+            secondLastAnnouncement.setLineColor(Color.BLACK);
+            secondLastAnnouncement.setTextSize(15f);
+            lineChart.getXAxis().addLimitLine(secondLastAnnouncement);
+        }
+
+        //create the data
+        //create the dataset
+        //get the xVals
+        ArrayList<String> xVals = new ArrayList<>();
+        for (int i = 0; i < stateHistory.size(); i++) {
+            xVals.add("");
+        }
+        //get the yVals
+        ArrayList<Entry> yVals = new ArrayList<>();
+        for (int i = 0; i < stateHistory.size(); i++) {
+            float val =  stateHistory.get(i).floatValue();
+            yVals.add(new Entry(val,i));
+        }
+
+        LineDataSet lineDataSet = new LineDataSet(yVals, "data");
+        lineDataSet.setColor(Color.RED);
+        lineDataSet.setCircleColor(Color.RED);
+        lineDataSet.setDrawValues(false);
+        ArrayList<LineDataSet> dataSets = new ArrayList<>();
+        dataSets.add(lineDataSet);
+        LineData lineData = new LineData(xVals, dataSets);
+        lineChart.setData(lineData);
+        lineChart.invalidate();
     }
 
     @Override
